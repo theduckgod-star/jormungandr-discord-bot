@@ -19,7 +19,6 @@ const openai = new OpenAI({
   defaultHeaders: {
     "HTTP-Referer": "http://localhost",
     "X-Title": "discord-ai-bot"
-    client.login(process.env.DISCORD_TOKEN);
   }
 });
 
