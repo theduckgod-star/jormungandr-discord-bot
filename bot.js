@@ -19,11 +19,10 @@ const openai = new OpenAI({
   apiKey: "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",
   baseURL: "https://openrouter.ai/api/v1",
   defaultHeaders: {
-    "HTTP-Referer": "http://localhost",
-    "X-Title": "jormungandr-discord-bot"
+    "HTTP-Referer": "https://github.com/theduckgod-star/jormungandr-discord-bot",
+    "X-Title": "Jormungandr Discord Bot"
   }
 });
-
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
