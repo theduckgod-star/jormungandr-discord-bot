@@ -16,7 +16,7 @@ const client = new Client({
 
 // OpenRouter setup
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
+  apiKey: "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",
   baseURL: "https://openrouter.ai/api/v1",
   defaultHeaders: {
     "HTTP-Referer": "http://localhost",
