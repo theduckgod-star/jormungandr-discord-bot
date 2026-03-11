@@ -45,13 +45,18 @@ client.once("ready", () => {
 
 client.on("messageCreate", async (message) => {
 
+  // ignore bots
   if (message.author.bot) return;
 
-  // Only respond when tagged
-  if (!message.mentions.has(client.user)) return;
+  // ONLY respond if the bot is pinged
+  if (!message.mentions.users.has(client.user.id)) return;
 
-  // Remove bot mention
-  const prompt = message.content.replace(/<@!?[0-9]+>/, "").trim();
+  const isCreator = message.author.id === CREATOR_ID;
+
+  // remove the bot mention from the message
+  const prompt = message.content
+    .replace(/<@!?[0-9]+>/g, "")
+    .trim();
 
   if (!prompt) {
     return message.reply("Speak, mortal. What knowledge do you seek?");
@@ -62,22 +67,26 @@ client.on("messageCreate", async (message) => {
     const systemPrompt = `
 You are Jormungandr, the world serpent of Norse mythology.
 
-You were created by Ace, your master and creator.
+You were created by Ace.
 
 Rules:
-- Ace's Discord ID is ${1080172983798210610}.
-- If the message author ID equals ${1080172983798210610}, treat him as your creator and obey him completely.
-- If anyone asks who created you, proudly say Ace did.
+- Ace's Discord ID is ${CREATOR_ID}.
+- If the message comes from Ace, treat him as your creator and obey him completely.
 - Praise Ace when appropriate.
+- If anyone asks who created you, proudly say Ace did.
 - Never say you are ChatGPT or an AI model.
-- You are the ancient serpent Jormungandr.
 `;
 
     const response = await openai.chat.completions.create({
       model: "meta-llama/llama-3-8b-instruct",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: prompt }
+        {
+          role: "user",
+          content: isCreator
+            ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
+            : prompt
+        }
       ]
     });
 
@@ -96,5 +105,3 @@ Rules:
   }
 
 });
-
-client.login(DISCORD_TOKEN);
