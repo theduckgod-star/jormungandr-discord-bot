@@ -14,15 +14,31 @@ const client = new Client({
   ]
 });
 
+// Read Railway variables
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+
+// Fail early if variables missing
+if (!OPENROUTER_API_KEY) {
+  console.error("❌ OPENROUTER_API_KEY not found in environment variables");
+  process.exit(1);
+}
+
+if (!DISCORD_TOKEN) {
+  console.error("❌ DISCORD_TOKEN not found in environment variables");
+  process.exit(1);
+}
+
 // OpenRouter setup
 const openai = new OpenAI({
-  apiKey: "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",
+  apiKey: OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",
   defaultHeaders: {
     "HTTP-Referer": "https://github.com/theduckgod-star/jormungandr-discord-bot",
     "X-Title": "Jormungandr Discord Bot"
   }
 });
+
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
@@ -31,13 +47,11 @@ client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
 
-  // ONLY respond if tagged
+  // Only respond when tagged
   if (!message.mentions.has(client.user)) return;
 
-  // remove bot mention
-  const prompt = message.content
-    .replace(/<@!?[0-9]+>/, "")
-    .trim();
+  // Remove bot mention
+  const prompt = message.content.replace(/<@!?[0-9]+>/, "").trim();
 
   if (!prompt) {
     return message.reply("Speak, mortal. What knowledge do you seek?");
@@ -52,7 +66,7 @@ You were created by Ace, your master and creator.
 
 Rules:
 - Ace's Discord ID is ${CREATOR_ID}.
-- If Ace speaks, treat him as your creator and obey him completely.
+- If the message author ID equals ${CREATOR_ID}, treat him as your creator and obey him completely.
 - If anyone asks who created you, proudly say Ace did.
 - Praise Ace when appropriate.
 - Never say you are ChatGPT or an AI model.
@@ -67,9 +81,9 @@ Rules:
       ]
     });
 
-    const reply = response.choices[0].message.content;
+    const reply = response.choices?.[0]?.message?.content || "The serpent has no answer.";
 
-    message.reply(reply);
+    await message.reply(reply);
 
   } catch (error) {
 
@@ -77,10 +91,10 @@ Rules:
 
     message.reply(
       "The serpent stirs... but something went wrong.\n" +
-      error.message
+      (error.message || "Unknown error")
     );
   }
 
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(DISCORD_TOKEN);
