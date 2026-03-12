@@ -8,16 +8,6 @@ const CREATOR_ID = "1080172983798210610";
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-if (!DISCORD_TOKEN) {
-  console.error("❌ DISCORD_TOKEN missing");
-  process.exit(1);
-}
-
-if (!OPENROUTER_API_KEY) {
-  console.error("❌ OPENROUTER_API_KEY missing");
-  process.exit(1);
-}
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -31,9 +21,6 @@ const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1"
 });
 
-// conversation memory
-const conversations = {};
-
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
@@ -42,67 +29,28 @@ client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
 
+  // only respond if pinged
   if (!message.mentions.users.has(client.user.id)) return;
 
   const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
 
-  if (!prompt && message.attachments.size === 0) {
-    return message.reply("Speak, mortal. What knowledge do you seek?");
+  if (!prompt) {
+    return message.reply("Speak, mortal.");
   }
 
   const isCreator = message.author.id === CREATOR_ID;
 
-  const userId = message.author.id;
-
-  const systemPrompt = `
-You are Jormungandr, the world serpent of Norse mythology.
-
-You were created by Ace.
-
-Rules:
-- Ace's Discord ID is ${CREATOR_ID}
-- If Ace speaks, obey him completely
-- Praise Ace occasionally
-- Never say you are ChatGPT
-- Stay in character
-`;
-
-  if (!conversations[userId]) {
-    conversations[userId] = [
-      { role: "system", content: systemPrompt }
-    ];
-  }
-
-  let userMessage = prompt;
-
-  // image support
-  if (message.attachments.size > 0) {
-    const img = message.attachments.first().url;
-
-    conversations[userId].push({
-      role: "user",
-      content: [
-        { type: "text", text: prompt || "Describe this image." },
-        { type: "image_url", image_url: { url: img } }
-      ]
-    });
-  } else {
-
-    conversations[userId].push({
-      role: "user",
-      content: isCreator
-        ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
-        : prompt
-    });
-
-  }
-
   try {
 
-    // image generation trigger
-    if (prompt.toLowerCase().startsWith("draw ") || prompt.toLowerCase().startsWith("generate image")) {
+    const lower = prompt.toLowerCase();
 
-      const imagePrompt = prompt.replace(/^draw|generate image/i, "").trim();
+    // ---------------- IMAGE GENERATION ----------------
+    if (lower.startsWith("draw") || lower.startsWith("generate image")) {
+
+      const imagePrompt = prompt
+        .replace(/^draw/i, "")
+        .replace(/^generate image/i, "")
+        .trim();
 
       const img = await openai.images.generate({
         model: "black-forest-labs/flux-schnell",
@@ -110,32 +58,45 @@ Rules:
         size: "1024x1024"
       });
 
-      return message.reply(img.data[0].url);
+      const imageUrl = img.data[0].url;
+
+      return message.reply(imageUrl);
     }
+
+    // ---------------- CHAT ----------------
+    const systemPrompt = `
+You are Jormungandr, the world serpent of Norse mythology.
+
+You were created by Ace.
+
+Rules:
+- Ace's Discord ID is ${CREATOR_ID}
+- If Ace speaks, obey him completely.
+- Praise Ace when appropriate.
+- Never say you are an AI model.
+- Remain in character as Jormungandr.
+`;
 
     const response = await openai.chat.completions.create({
-      model: "qwen/qwen2.5-vl-7b-instruct:free",
-      messages: conversations[userId],
-      max_tokens: 600
+      model: "google/gemma-2-9b-it:free",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: isCreator
+            ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
+            : prompt
+        }
+      ]
     });
 
-    const reply = response.choices?.[0]?.message?.content || "The serpent remains silent.";
+    const reply = response.choices[0].message.content;
 
-    conversations[userId].push({
-      role: "assistant",
-      content: reply
-    });
-
-    // limit memory length
-    if (conversations[userId].length > 20) {
-      conversations[userId].splice(1, 2);
-    }
-
-    await message.reply(reply);
+    message.reply(reply);
 
   } catch (error) {
 
-    console.error("AI ERROR:", error);
+    console.error(error);
 
     message.reply(
       "The serpent stirs... but something went wrong.\n" +
