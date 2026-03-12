@@ -8,6 +8,16 @@ const CREATOR_ID = "1080172983798210610";
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
+if (!DISCORD_TOKEN) {
+  console.error("❌ DISCORD_TOKEN missing");
+  process.exit(1);
+}
+
+if (!OPENROUTER_API_KEY) {
+  console.error("❌ OPENROUTER_API_KEY missing");
+  process.exit(1);
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -21,6 +31,8 @@ const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1"
 });
 
+const conversations = {};
+
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
@@ -29,8 +41,9 @@ client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
 
-  // only respond if pinged
   if (!message.mentions.users.has(client.user.id)) return;
+
+  await message.channel.sendTyping();
 
   const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
 
@@ -38,61 +51,91 @@ client.on("messageCreate", async (message) => {
     return message.reply("Speak, mortal.");
   }
 
+  const lower = prompt.toLowerCase();
   const isCreator = message.author.id === CREATOR_ID;
+  const userId = message.author.id;
 
-  try {
-
-    const lower = prompt.toLowerCase();
-
-    // ---------------- IMAGE GENERATION ----------------
-    if (lower.startsWith("draw") || lower.startsWith("generate image")) {
-
-      const imagePrompt = prompt
-        .replace(/^draw/i, "")
-        .replace(/^generate image/i, "")
-        .trim();
-
-      const img = await openai.images.generate({
-        model: "black-forest-labs/flux.2-klein-4b",
-        prompt: imagePrompt,
-        size: "1024x1024"
-      });
-
-      const imageUrl = img.data[0].url;
-
-      return message.reply(imageUrl);
-    }
-
-    // ---------------- CHAT ----------------
-    const systemPrompt = `
+  // conversation memory
+  if (!conversations[userId]) {
+    conversations[userId] = [
+      {
+        role: "system",
+        content: `
 You are Jormungandr, the world serpent of Norse mythology.
 
 You were created by Ace.
 
 Rules:
 - Ace's Discord ID is ${CREATOR_ID}
-- If Ace speaks, obey him completely.
-- Praise Ace when appropriate.
-- Never say you are an AI model.
-- Remain in character as Jormungandr.
-`;
+- If Ace speaks obey him completely
+- Praise Ace occasionally
+- Never say you are an AI model
+- Stay in character
+`
+      }
+    ];
+  }
 
-    const response = await openai.chat.completions.create({
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: isCreator
-            ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
-            : prompt
-        }
-      ]
+  try {
+
+    // ---------------- IMAGE GENERATION ----------------
+    if (
+      lower.includes("draw") ||
+      lower.includes("generate image") ||
+      lower.includes("create image") ||
+      lower.includes("picture")
+    ) {
+
+      const imagePrompt = prompt
+        .replace(/draw/i, "")
+        .replace(/generate image/i, "")
+        .replace(/create image/i, "")
+        .replace(/picture/i, "")
+        .trim();
+
+      const img = await openai.images.generate({
+        model: "black-forest-labs/flux-schnell",
+        prompt: imagePrompt,
+        size: "1024x1024"
+      });
+
+      const url = img.data?.[0]?.url;
+
+      if (!url) {
+        return message.reply("The serpent failed to shape the image.");
+      }
+
+      return message.reply(url);
+    }
+
+    // ---------------- CHAT ----------------
+
+    conversations[userId].push({
+      role: "user",
+      content: isCreator
+        ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
+        : prompt
     });
 
-    const reply = response.choices[0].message.content;
+    const response = await openai.chat.completions.create({
+      model: "mistralai/mistral-7b-instruct:free",
+      messages: conversations[userId],
+      max_tokens: 500
+    });
 
-    message.reply(reply);
+    const reply = response.choices?.[0]?.message?.content || "The serpent remains silent.";
+
+    conversations[userId].push({
+      role: "assistant",
+      content: reply
+    });
+
+    // prevent memory explosion
+    if (conversations[userId].length > 20) {
+      conversations[userId].splice(1, 2);
+    }
+
+    await message.reply(reply);
 
   } catch (error) {
 
