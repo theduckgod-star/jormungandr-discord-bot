@@ -35,9 +35,7 @@ const memory = {};
 
 // models to try
 const CHAT_MODELS = [
-  "meta-llama/llama-3.1-8b-instruct:free",
-  "nvidia/nemotron-4-mini-instruct:free",
-  "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
+  "meta-llama/llama-3.3-70b-instruct:free"
 ];
 
 const IMAGE_MODEL = "stabilityai/sdxl";
