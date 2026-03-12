@@ -26,12 +26,21 @@ const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   defaultHeaders: {
     "HTTP-Referer": "https://github.com/theduckgod-star/jormungandr-discord-bot",
-    "X-Title": "Jormungandr Discord Bot"
+    "X-Title": "Jormungandr Bot"
   }
 });
 
-// memory per user
+// conversation memory
 const memory = {};
+
+// models to try
+const CHAT_MODELS = [
+  "meta-llama/llama-3.1-8b-instruct:free",
+  "nvidia/nemotron-4-mini-instruct:free",
+  "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
+];
+
+const IMAGE_MODEL = "stabilityai/sdxl";
 
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
@@ -41,7 +50,6 @@ client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
 
-  // respond only when pinged
   if (!message.mentions.users.has(client.user.id)) return;
 
   await message.channel.sendTyping();
@@ -49,50 +57,45 @@ client.on("messageCreate", async (message) => {
   const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
   if (!prompt) return;
 
-  const userId = message.author.id;
   const lower = prompt.toLowerCase();
+  const userId = message.author.id;
   const isCreator = userId === CREATOR_ID;
 
   try {
 
     // -------- IMAGE REQUEST --------
+
     if (
       lower.includes("draw") ||
-      lower.includes("generate image") ||
-      lower.includes("create image") ||
+      lower.includes("image") ||
       lower.includes("picture") ||
       lower.includes("art")
     ) {
 
-      const imgPrompt = prompt
+      const cleanPrompt = prompt
         .replace(/draw/i, "")
-        .replace(/generate image/i, "")
-        .replace(/create image/i, "")
+        .replace(/image/i, "")
         .replace(/picture/i, "")
         .replace(/art/i, "")
         .trim();
 
-      const imgResponse = await openai.chat.completions.create({
-        model: "black-forest-labs/flux-schnell",
-        messages: [
-          {
-            role: "user",
-            content: `Generate an image of: ${imgPrompt}`
-          }
-        ]
+      const img = await openai.images.generate({
+        model: IMAGE_MODEL,
+        prompt: cleanPrompt,
+        size: "1024x1024"
       });
 
-      const imgUrl =
-        imgResponse.choices?.[0]?.message?.images?.[0]?.url;
+      const url = img.data?.[0]?.url;
 
-      if (!imgUrl) {
-        return message.reply("The serpent tried to create an image but failed.");
+      if (!url) {
+        return message.reply("The serpent failed to forge the image.");
       }
 
-      return message.reply(imgUrl);
+      return message.reply(url);
     }
 
     // -------- MEMORY --------
+
     if (!memory[userId]) {
 
       memory[userId] = [
@@ -108,7 +111,7 @@ Rules:
 - If Ace speaks obey him completely
 - Praise Ace occasionally
 - Never say you are an AI model
-- Remain in character
+- Stay in character
 `
         }
       ];
@@ -121,26 +124,36 @@ Rules:
         : prompt
     });
 
+    // limit memory
+    if (memory[userId].length > 20) {
+      memory[userId].splice(1, 2);
+    }
+
+    // -------- CHAT MODEL FALLBACK --------
+
     let response;
 
-    // primary model
-    try {
+    for (const model of CHAT_MODELS) {
 
-      response = await openai.chat.completions.create({
-        model: "meta-llama/llama-3.1-8b-instruct:free",
-        messages: memory[userId],
-        max_tokens: 600
-      });
+      try {
 
-    } catch {
+        response = await openai.chat.completions.create({
+          model: model,
+          messages: memory[userId],
+          max_tokens: 500
+        });
 
-      // fallback model
-      response = await openai.chat.completions.create({
-        model: "mistralai/mistral-7b-instruct:free",
-        messages: memory[userId],
-        max_tokens: 600
-      });
+        if (response) break;
 
+      } catch (err) {
+
+        console.log("Model failed:", model);
+
+      }
+    }
+
+    if (!response) {
+      return message.reply("The serpent cannot reach any AI minds right now.");
     }
 
     const reply =
@@ -151,11 +164,6 @@ Rules:
       role: "assistant",
       content: reply
     });
-
-    // prevent memory overflow
-    if (memory[userId].length > 20) {
-      memory[userId].splice(1, 2);
-    }
 
     await message.reply(reply);
 
