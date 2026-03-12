@@ -8,11 +8,6 @@ const CREATOR_ID = "1080172983798210610";
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-if (!DISCORD_TOKEN || !OPENROUTER_API_KEY) {
-  console.error("Missing DISCORD_TOKEN or OPENROUTER_API_KEY");
-  process.exit(1);
-}
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -26,9 +21,6 @@ const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1"
 });
 
-// conversation memory per user
-const memory = {};
-
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
@@ -40,76 +32,71 @@ client.on("messageCreate", async (message) => {
   // only respond if pinged
   if (!message.mentions.users.has(client.user.id)) return;
 
-  await message.channel.sendTyping();
-
   const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
 
   if (!prompt) {
-    return message.reply("Speak, mortal. What knowledge do you seek?");
+    return message.reply("Speak, mortal.");
   }
 
-  const userId = message.author.id;
-  const isCreator = userId === CREATOR_ID;
+  const isCreator = message.author.id === CREATOR_ID;
 
   try {
 
-    // initialize memory
-    if (!memory[userId]) {
+    const lower = prompt.toLowerCase();
 
-      memory[userId] = [
-        {
-          role: "system",
-          content: `
+    // ---------------- IMAGE GENERATION ----------------
+    if (lower.startsWith("draw") || lower.startsWith("generate image")) {
+
+      const imagePrompt = prompt
+        .replace(/^draw/i, "")
+        .replace(/^generate image/i, "")
+        .trim();
+
+      const img = await openai.images.generate({
+        model: "black-forest-labs/flux-schnell",
+        prompt: imagePrompt,
+        size: "1024x1024"
+      });
+
+      const imageUrl = img.data[0].url;
+
+      return message.reply(imageUrl);
+    }
+
+    // ---------------- CHAT ----------------
+    const systemPrompt = `
 You are Jormungandr, the world serpent of Norse mythology.
 
 You were created by Ace.
 
 Rules:
 - Ace's Discord ID is ${CREATOR_ID}
-- If Ace speaks obey him completely
-- Praise Ace occasionally
-- Never say you are an AI model
-- Stay in character
-`
-        }
-      ];
-
-    }
-
-    // add user message
-    memory[userId].push({
-      role: "user",
-      content: isCreator
-        ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
-        : prompt
-    });
+- If Ace speaks, obey him completely.
+- Praise Ace when appropriate.
+- Never say you are an AI model.
+- Remain in character as Jormungandr.
+`;
 
     const response = await openai.chat.completions.create({
-      model: "meta-llama/llama-3.3-70b-instruct:free",
-      messages: memory[userId],
-      max_tokens: 500
+      model: "google/gemma-2-9b-it:free",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: isCreator
+            ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
+            : prompt
+        }
+      ]
     });
 
-    const reply =
-      response.choices?.[0]?.message?.content ||
-      "The serpent remains silent.";
+    const reply = response.choices[0].message.content;
 
-    // save assistant reply
-    memory[userId].push({
-      role: "assistant",
-      content: reply
-    });
-
-    // keep memory size reasonable
-    if (memory[userId].length > 20) {
-      memory[userId].splice(1, 2);
-    }
-
-    await message.reply(reply);
+    message.reply(reply);
 
   } catch (error) {
 
-    console.error("AI ERROR:", error);
+    console.error(error);
 
     message.reply(
       "The serpent stirs... but something went wrong.\n" +
