@@ -53,7 +53,7 @@ client.on("messageCreate", async (message) => {
         .trim();
 
       const img = await openai.images.generate({
-        model: "black-forest-labs/flux-schnell",
+        model: "black-forest-labs/flux.2-klein-4b",
         prompt: imagePrompt,
         size: "1024x1024"
       });
@@ -78,7 +78,7 @@ Rules:
 `;
 
     const response = await openai.chat.completions.create({
-      model: "google/gemma-2-9b-it:free",
+      model: "nvidia/nemotron-3-super-120b-a12b:free",
       messages: [
         { role: "system", content: systemPrompt },
         {
