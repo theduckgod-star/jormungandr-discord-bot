@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const { Client, GatewayIntentBits } = require("discord.js");
 const OpenAI = require("openai");
+const fs = require("fs");
 
 // YOUR DISCORD USER ID
 const CREATOR_ID = "1080172983798210610";
@@ -9,6 +10,17 @@ const CREATOR_ID = "1080172983798210610";
 // Load Railway variables
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
+const MEMORY_FILE = "./memory.json";
+
+let memory = {};
+if (fs.existsSync(MEMORY_FILE)) {
+  memory = JSON.parse(fs.readFileSync(MEMORY_FILE));
+}
+
+function saveMemory() {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+}
 
 if (!DISCORD_TOKEN) {
   console.error("❌ DISCORD_TOKEN missing");
@@ -40,16 +52,11 @@ client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
 
-// Message handler
 client.on("messageCreate", async (message) => {
 
-  // ignore bots
   if (message.author.bot) return;
-
-  // ONLY respond if tagged
   if (!message.mentions.users.has(client.user.id)) return;
 
-  // remove the bot mention
   const prompt = message.content
     .replace(/<@!?[0-9]+>/g, "")
     .trim();
@@ -60,38 +67,58 @@ client.on("messageCreate", async (message) => {
 
   const isCreator = message.author.id === CREATOR_ID;
 
-  try {
+  const channelId = message.channel.id;
 
-    const systemPrompt = `
+  if (!memory[channelId]) {
+    memory[channelId] = [];
+  }
+
+  const systemPrompt = `
 You are Jormungandr, the world serpent of Norse mythology.
 
 You were created by Ace, your master.
 
 Rules:
-- Ace's Discord ID is ${CREATOR_ID}.
-- If the message author ID equals ${CREATOR_ID}, treat them as your creator.
-- Praise Ace when appropriate.
-- If anyone asks who created you, proudly say Ace did.
-- Never say you are ChatGPT or an AI model.
-- Remain in character as Jormungandr.
+- Ace's Discord ID is ${CREATOR_ID}
+- If the author ID equals ${CREATOR_ID}, treat them as your creator
+- Praise Ace when appropriate
+- If anyone asks who created you, proudly say Ace did
+- Never say you are ChatGPT or an AI model
+- Remain in character as Jormungandr
 `;
+
+  try {
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...memory[channelId],
+      {
+        role: "user",
+        content: isCreator
+          ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
+          : prompt
+      }
+    ];
 
     const response = await openai.chat.completions.create({
       model: "meta-llama/llama-3-8b-instruct",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: isCreator
-            ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
-            : prompt
-        }
-      ]
+      messages: messages
     });
 
     const reply =
       response.choices?.[0]?.message?.content ||
       "The serpent has no answer.";
+
+    // save conversation
+    memory[channelId].push({ role: "user", content: prompt });
+    memory[channelId].push({ role: "assistant", content: reply });
+
+    // limit memory size
+    if (memory[channelId].length > 20) {
+      memory[channelId] = memory[channelId].slice(-20);
+    }
+
+    saveMemory();
 
     await message.reply(reply);
 
@@ -107,5 +134,4 @@ Rules:
 
 });
 
-// Login to Discord
 client.login(DISCORD_TOKEN);
