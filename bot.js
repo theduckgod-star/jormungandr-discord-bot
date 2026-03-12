@@ -9,7 +9,7 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 if (!DISCORD_TOKEN || !OPENROUTER_API_KEY) {
-  console.error("Missing tokens in Railway environment variables");
+  console.error("Missing DISCORD_TOKEN or OPENROUTER_API_KEY");
   process.exit(1);
 }
 
@@ -23,14 +23,10 @@ const client = new Client({
 
 const openai = new OpenAI({
   apiKey: OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-  defaultHeaders: {
-    "HTTP-Referer": "https://github.com/theduckgod-star/jormungandr-discord-bot",
-    "X-Title": "Jormungandr Bot"
-  }
+  baseURL: "https://openrouter.ai/api/v1"
 });
 
-// memory per user
+// conversation memory per user
 const memory = {};
 
 client.once("ready", () => {
@@ -41,51 +37,23 @@ client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
 
+  // only respond if pinged
   if (!message.mentions.users.has(client.user.id)) return;
 
   await message.channel.sendTyping();
 
   const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
 
-  if (!prompt) return;
+  if (!prompt) {
+    return message.reply("Speak, mortal. What knowledge do you seek?");
+  }
 
   const userId = message.author.id;
-  const lower = prompt.toLowerCase();
   const isCreator = userId === CREATOR_ID;
 
   try {
 
-    // -------- IMAGE GENERATION --------
-
-    if (
-      lower.startsWith("draw") ||
-      lower.startsWith("generate image") ||
-      lower.startsWith("create image")
-    ) {
-
-      const imagePrompt = prompt
-        .replace(/draw/i, "")
-        .replace(/generate image/i, "")
-        .replace(/create image/i, "")
-        .trim();
-
-      const img = await openai.images.generate({
-        model: "black-forest-labs/flux-schnell",
-        prompt: imagePrompt,
-        size: "1024x1024"
-      });
-
-      const imageUrl = img.data?.[0]?.url;
-
-      if (!imageUrl) {
-        return message.reply("The serpent failed to manifest the image.");
-      }
-
-      return message.reply(imageUrl);
-    }
-
-    // -------- MEMORY SETUP --------
-
+    // initialize memory
     if (!memory[userId]) {
 
       memory[userId] = [
@@ -101,13 +69,14 @@ Rules:
 - If Ace speaks obey him completely
 - Praise Ace occasionally
 - Never say you are an AI model
-- Remain in character
+- Stay in character
 `
         }
       ];
 
     }
 
+    // add user message
     memory[userId].push({
       role: "user",
       content: isCreator
@@ -115,26 +84,23 @@ Rules:
         : prompt
     });
 
-    // -------- AI RESPONSE --------
-
     const response = await openai.chat.completions.create({
       model: "meta-llama/llama-3.3-70b-instruct:free",
       messages: memory[userId],
       max_tokens: 500
     });
 
-    const reply = response.choices?.[0]?.message?.content;
+    const reply =
+      response.choices?.[0]?.message?.content ||
+      "The serpent remains silent.";
 
-    if (!reply) {
-      return message.reply("The serpent remains silent.");
-    }
-
+    // save assistant reply
     memory[userId].push({
       role: "assistant",
       content: reply
     });
 
-    // limit memory to last ~20 messages
+    // keep memory size reasonable
     if (memory[userId].length > 20) {
       memory[userId].splice(1, 2);
     }
@@ -147,7 +113,7 @@ Rules:
 
     message.reply(
       "The serpent stirs... but something went wrong.\n" +
-      error.message
+      (error.message || "Unknown error")
     );
   }
 
