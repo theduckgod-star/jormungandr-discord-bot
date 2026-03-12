@@ -9,7 +9,7 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 if (!DISCORD_TOKEN || !OPENROUTER_API_KEY) {
-  console.error("Missing DISCORD_TOKEN or OPENROUTER_API_KEY");
+  console.error("Missing tokens in Railway environment variables");
   process.exit(1);
 }
 
@@ -30,15 +30,8 @@ const openai = new OpenAI({
   }
 });
 
-// conversation memory
+// memory per user
 const memory = {};
-
-// models to try
-const CHAT_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free"
-];
-
-const IMAGE_MODEL = "stabilityai/sdxl";
 
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
@@ -53,46 +46,45 @@ client.on("messageCreate", async (message) => {
   await message.channel.sendTyping();
 
   const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
+
   if (!prompt) return;
 
-  const lower = prompt.toLowerCase();
   const userId = message.author.id;
+  const lower = prompt.toLowerCase();
   const isCreator = userId === CREATOR_ID;
 
   try {
 
-    // -------- IMAGE REQUEST --------
+    // -------- IMAGE GENERATION --------
 
     if (
-      lower.includes("draw") ||
-      lower.includes("image") ||
-      lower.includes("picture") ||
-      lower.includes("art")
+      lower.startsWith("draw") ||
+      lower.startsWith("generate image") ||
+      lower.startsWith("create image")
     ) {
 
-      const cleanPrompt = prompt
+      const imagePrompt = prompt
         .replace(/draw/i, "")
-        .replace(/image/i, "")
-        .replace(/picture/i, "")
-        .replace(/art/i, "")
+        .replace(/generate image/i, "")
+        .replace(/create image/i, "")
         .trim();
 
       const img = await openai.images.generate({
-        model: IMAGE_MODEL,
-        prompt: cleanPrompt,
+        model: "black-forest-labs/flux-schnell",
+        prompt: imagePrompt,
         size: "1024x1024"
       });
 
-      const url = img.data?.[0]?.url;
+      const imageUrl = img.data?.[0]?.url;
 
-      if (!url) {
-        return message.reply("The serpent failed to forge the image.");
+      if (!imageUrl) {
+        return message.reply("The serpent failed to manifest the image.");
       }
 
-      return message.reply(url);
+      return message.reply(imageUrl);
     }
 
-    // -------- MEMORY --------
+    // -------- MEMORY SETUP --------
 
     if (!memory[userId]) {
 
@@ -109,10 +101,11 @@ Rules:
 - If Ace speaks obey him completely
 - Praise Ace occasionally
 - Never say you are an AI model
-- Stay in character
+- Remain in character
 `
         }
       ];
+
     }
 
     memory[userId].push({
@@ -122,56 +115,39 @@ Rules:
         : prompt
     });
 
-    // limit memory
-    if (memory[userId].length > 20) {
-      memory[userId].splice(1, 2);
+    // -------- AI RESPONSE --------
+
+    const response = await openai.chat.completions.create({
+      model: "meta-llama/llama-3.3-70b-instruct:free",
+      messages: memory[userId],
+      max_tokens: 500
+    });
+
+    const reply = response.choices?.[0]?.message?.content;
+
+    if (!reply) {
+      return message.reply("The serpent remains silent.");
     }
-
-    // -------- CHAT MODEL FALLBACK --------
-
-    let response;
-
-    for (const model of CHAT_MODELS) {
-
-      try {
-
-        response = await openai.chat.completions.create({
-          model: model,
-          messages: memory[userId],
-          max_tokens: 500
-        });
-
-        if (response) break;
-
-      } catch (err) {
-
-        console.log("Model failed:", model);
-
-      }
-    }
-
-    if (!response) {
-      return message.reply("The serpent cannot reach any AI minds right now.");
-    }
-
-    const reply =
-      response.choices?.[0]?.message?.content ||
-      "The serpent remains silent.";
 
     memory[userId].push({
       role: "assistant",
       content: reply
     });
 
+    // limit memory to last ~20 messages
+    if (memory[userId].length > 20) {
+      memory[userId].splice(1, 2);
+    }
+
     await message.reply(reply);
 
-  } catch (err) {
+  } catch (error) {
 
-    console.error(err);
+    console.error("AI ERROR:", error);
 
     message.reply(
       "The serpent stirs... but something went wrong.\n" +
-      (err.message || "Unknown error")
+      error.message
     );
   }
 
