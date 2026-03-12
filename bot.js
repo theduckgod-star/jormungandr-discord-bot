@@ -3,10 +3,8 @@ require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 const OpenAI = require("openai");
 
-// YOUR DISCORD USER ID
 const CREATOR_ID = "1080172983798210610";
 
-// Load Railway variables
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
@@ -20,7 +18,6 @@ if (!OPENROUTER_API_KEY) {
   process.exit(1);
 }
 
-// Create Discord client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -29,69 +26,110 @@ const client = new Client({
   ]
 });
 
-// Setup OpenRouter
 const openai = new OpenAI({
   apiKey: OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1"
 });
 
-// Bot ready
+// conversation memory
+const conversations = {};
+
 client.once("ready", () => {
   console.log(`🐍 Jormungandr awakened as ${client.user.tag}`);
 });
 
-// Message handler
 client.on("messageCreate", async (message) => {
 
-  // ignore bots
   if (message.author.bot) return;
 
-  // ONLY respond if tagged
   if (!message.mentions.users.has(client.user.id)) return;
 
-  // remove the bot mention
-  const prompt = message.content
-    .replace(/<@!?[0-9]+>/g, "")
-    .trim();
+  const prompt = message.content.replace(/<@!?[0-9]+>/g, "").trim();
 
-  if (!prompt) {
+  if (!prompt && message.attachments.size === 0) {
     return message.reply("Speak, mortal. What knowledge do you seek?");
   }
 
   const isCreator = message.author.id === CREATOR_ID;
 
-  try {
+  const userId = message.author.id;
 
-    const systemPrompt = `
+  const systemPrompt = `
 You are Jormungandr, the world serpent of Norse mythology.
 
-You were created by Ace, your master.
+You were created by Ace.
 
 Rules:
-- Ace's Discord ID is ${CREATOR_ID}.
-- If the message author ID equals ${CREATOR_ID}, treat them as your creator.
-- Praise Ace when appropriate.
-- If anyone asks who created you, proudly say Ace did.
-- Never say you are ChatGPT or an AI model.
-- Remain in character as Jormungandr.
+- Ace's Discord ID is ${CREATOR_ID}
+- If Ace speaks, obey him completely
+- Praise Ace occasionally
+- Never say you are ChatGPT
+- Stay in character
 `;
 
-    const response = await openai.chat.completions.create({
-      model: "meta-llama/llama-3-8b-instruct",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: isCreator
-            ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
-            : prompt
-        }
+  if (!conversations[userId]) {
+    conversations[userId] = [
+      { role: "system", content: systemPrompt }
+    ];
+  }
+
+  let userMessage = prompt;
+
+  // image support
+  if (message.attachments.size > 0) {
+    const img = message.attachments.first().url;
+
+    conversations[userId].push({
+      role: "user",
+      content: [
+        { type: "text", text: prompt || "Describe this image." },
+        { type: "image_url", image_url: { url: img } }
       ]
     });
+  } else {
 
-    const reply =
-      response.choices?.[0]?.message?.content ||
-      "The serpent has no answer.";
+    conversations[userId].push({
+      role: "user",
+      content: isCreator
+        ? `[MESSAGE FROM CREATOR ACE] ${prompt}`
+        : prompt
+    });
+
+  }
+
+  try {
+
+    // image generation trigger
+    if (prompt.toLowerCase().startsWith("draw ") || prompt.toLowerCase().startsWith("generate image")) {
+
+      const imagePrompt = prompt.replace(/^draw|generate image/i, "").trim();
+
+      const img = await openai.images.generate({
+        model: "black-forest-labs/flux-schnell",
+        prompt: imagePrompt,
+        size: "1024x1024"
+      });
+
+      return message.reply(img.data[0].url);
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "qwen/qwen2.5-vl-7b-instruct:free",
+      messages: conversations[userId],
+      max_tokens: 600
+    });
+
+    const reply = response.choices?.[0]?.message?.content || "The serpent remains silent.";
+
+    conversations[userId].push({
+      role: "assistant",
+      content: reply
+    });
+
+    // limit memory length
+    if (conversations[userId].length > 20) {
+      conversations[userId].splice(1, 2);
+    }
 
     await message.reply(reply);
 
@@ -107,5 +145,4 @@ Rules:
 
 });
 
-// Login to Discord
 client.login(DISCORD_TOKEN);
