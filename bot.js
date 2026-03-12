@@ -118,7 +118,7 @@ Rules:
     });
 
     const response = await openai.chat.completions.create({
-      model: "mistralai/mistral-7b-instruct:free",
+      model: "google/gemma-3n-e4b-it:free",
       messages: conversations[userId],
       max_tokens: 500
     });
